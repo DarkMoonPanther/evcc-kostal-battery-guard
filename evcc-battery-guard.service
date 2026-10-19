@@ -1,0 +1,40 @@
+[Unit]
+Description=EVCC home-battery discharge guard (KOSTAL)
+Documentation=https://www.kostal-solar-electric.com/fileadmin/downloadcenter/kse/BA/Protokollbeschreibung/BA_KOSTAL_Interface_MODBUS-TCP_SunSpec_with_Control.pdf
+Wants=network-online.target evcc.service
+After=network-online.target evcc.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/evcc-battery-guard.conf
+ExecStart=/usr/local/libexec/evcc-battery-guard --run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+StateDirectory=evcc-battery-guard
+StateDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+*.local
+*.log
+*.zip
+*.tar.gz
+mokka-battery-guard.conf
+evcc-battery-guard.conf
+session.json
+secrets*
+backups/

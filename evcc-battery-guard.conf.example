@@ -1,0 +1,38 @@
+# EVCC Battery Guard — KOSTAL PLENTICORE example configuration
+# Safety default: the installed service is inert until deliberately armed.
+ARMED=false
+
+EVCC_STATE_URL=http://127.0.0.1:7070/api/state
+
+KOSTAL_HOST=192.0.2.10
+KOSTAL_PORT=1502
+# Confirm the unit id, TCP port, and Modbus permissions on your inverter.
+KOSTAL_UNIT=71
+
+# Read EVCC frequently, but do not hammer the inverter.
+POLL_INTERVAL_S=5
+REFRESH_INTERVAL_S=15
+MIN_CHANGE_W=100
+
+# Conservative margin: allow slightly less battery power than the calculated
+# ordinary household deficit. The small remainder then comes from grid.
+GRID_MARGIN_W=100
+
+MIN_CHARGE_POWER_W=500
+
+# KOSTAL register 1042 is read-only for the guard. At/below the inverter
+# minimum SoC the guard stops controlling 1040; it resumes only this many
+# percentage points above the current KOSTAL minimum SoC.
+MIN_SOC_HYSTERESIS_PCT=0.5
+
+# EVCC state values are polled independently. If the reconstructed household
+# balance differs by more than this, the sample is treated as incoherent.
+STATE_COHERENCE_W=500
+
+READBACK_TOLERANCE_W=50
+MAX_REASONABLE_POWER_W=30000
+
+HTTP_TIMEOUT_S=3
+MODBUS_TIMEOUT_S=3
+
+STATE_DIR=/var/lib/evcc-battery-guard
