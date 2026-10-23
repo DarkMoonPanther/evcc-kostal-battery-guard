@@ -4,7 +4,7 @@
 
 During EV fast, planned, minimum-SoC recovery, or cost-optimized charging, this tool dynamically limits the home battery's *total maximum discharge power*, aiming to leave battery energy available to ordinary household load. This does **not** physically isolate EV and home circuits.
 
-Based on the locally deployed Mokka Battery Guard **v0.3.0**. Production use on a single installation does not establish general hardware compatibility.
+Based on the locally deployed Mokka Battery Guard **v0.4.0**. Production use on a single installation does not establish general hardware compatibility.
 
 ## Compatibility
 
@@ -58,7 +58,16 @@ Offline tests do not establish third-party hardware safety. Read [safety limitat
 
 ## Project status
 
-**0.3.0 publication candidate.** Not yet a public release. No universal manufacturer support is claimed.
+**v0.4.0 source update (23 October 2026).** v0.4.0 is installed on one KOSTAL G3 system; the new retry and logging paths passed 12 local offline regression tests, in addition to the repository's original tests. A repeat of the original anomalous meter/Modbus event has not been observed and validated in production since deployment. No universal manufacturer or firmware support is claimed.
+
+### What's new in v0.4.0
+
+- During an **active protected charge**, one inconsistent EVCC state snapshot triggers exactly **one complete re-fetch after 1 second**. The new snapshot replaces the old one; ownership, battery mode and charging eligibility are checked again before a write.
+- If the retry is still inconsistent or fails, the conservative pre-existing fallback remains (attempting a 0 W limit if the guard already owns an active session).
+- FC03 Modbus read errors now include the attempted register address and register count for troubleshooting.
+- The public example polls every 15 seconds and refreshes at 30 seconds (100 W change threshold). These are *example values*, not universal recommendations. The inverter's external timeout and actual behavior must be checked.
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Primary sources
 

@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 REG_BYTE_ORDER = 5
 REG_MAX_DISCHARGE = 1040
 REG_MIN_SOC = 1042
@@ -158,7 +158,10 @@ class ModbusTCP:
         return response
 
     def read_holding(self, address: int, count: int) -> list[int]:
-        response = self._request(0x03, struct.pack(">HH", address, count))
+        try:
+            response = self._request(0x03, struct.pack(">HH", address, count))
+        except ModbusError as exc:
+            raise ModbusError(f"{exc}; read address={address} count={count}") from exc
         expected_bytes = count * 2
         if len(response) != expected_bytes + 2 or response[1] != expected_bytes:
             raise ModbusError("malformed FC03 response")
@@ -342,6 +345,26 @@ def metrics(state: dict[str, Any], cfg: Config) -> dict[str, Any]:
     }
 
 
+def retry_incoherent_evcc_state(
+    state: dict[str, Any], readings: dict[str, Any], cfg: Config
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Re-read a suspect EVCC snapshot once; never weaken the 500 W threshold.
+
+    EVCC publishes meter and calculated home-power updates sequentially. A single
+    /api/state response can straddle those updates. The second complete response
+    replaces all values (including charge/ownership flags); the caller must
+    validate ownership and mode again before issuing any Modbus write.
+    """
+    if readings["coherent"] or not readings["guard_requested"]:
+        return state, readings
+    time.sleep(1.0)
+    fresh_state = fetch_evcc_state(cfg)
+    fresh_readings = metrics(fresh_state, cfg)
+    if fresh_readings["coherent"]:
+        log(f"EVCC coherent on retry; first mismatch={readings['coherence_error']:.0f}W")
+    return fresh_state, fresh_readings
+
+
 class Guard:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
@@ -480,6 +503,14 @@ class Guard:
                     continue
 
                 m = metrics(state, self.cfg)
+                state, m = retry_incoherent_evcc_state(state, m, self.cfg)
+                # The retry can change charger state, mode and battery-control owner.
+                # Never use the first snapshot's permission to authorize a write.
+                if state.get("batteryDischargeControl") is not False:
+                    self.relinquish("evcc batteryDischargeControl changed during retry")
+                    log("waiting: evcc batteryDischargeControl must be false", "WARN")
+                    time.sleep(self.cfg.poll_interval_s)
+                    continue
                 battery_mode = str(state.get("batteryMode", "unknown")).lower()
                 conflict = (
                     state.get("batteryGridChargeActive") is True

@@ -9,9 +9,11 @@ KOSTAL_PORT=1502
 # Confirm the unit id, TCP port, and Modbus permissions on your inverter.
 KOSTAL_UNIT=71
 
-# Read EVCC frequently, but do not hammer the inverter.
-POLL_INTERVAL_S=5
-REFRESH_INTERVAL_S=15
+# Example intervals; confirm your inverter external-control timeout and test the failback.
+# A 60-second device timeout was verified only on the original local deployment.
+# Faster reaction may be needed for rapidly varying household loads.
+POLL_INTERVAL_S=15
+REFRESH_INTERVAL_S=30
 MIN_CHANGE_W=100
 
 # Conservative margin: allow slightly less battery power than the calculated

@@ -29,3 +29,9 @@ This controller issues **live Modbus commands** that change battery discharge be
 - **Unverified other hardware:** neither another manufacturer nor another KOSTAL firmware generation is automatically supported.
 
 The supplied unit tests are offline software tests, **not** inverter hardware integration tests or a hard-power-loss verification.
+
+## Control refresh and non-volatile memory
+
+The example configuration refreshes register 1040 every 30 seconds during active control (or sooner if the target changes). Verify that this is safely shorter than the actual inverter external-control timeout, allowing for delays and network failures. The 60-second timeout used on the original tested system is **not** a universal device guarantee.
+
+Do **not** assume that Modbus register 1040 writes are guaranteed to be RAM-only or guaranteed free from non-volatile storage wear. Explicit manufacturer confirmation about internal write handling was not available for this release.
