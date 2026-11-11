@@ -1,0 +1,42 @@
+# Public example: replace placeholders. Default = observe / disarmed.
+# Copy to config.toml outside public Git, set state_dir appropriately.
+[application]
+mode = "protection"          # "protection" or "intelligent"
+timezone = "Europe/Berlin"    # user-configurable local calendar timezone
+execution = "observe"        # "observe" or "active"
+armed = false                 # must explicitly change together with execution
+state_dir = "/var/lib/battery-control-guard"
+
+[evcc]
+state_url = "http://127.0.0.1:7070/api/state"
+
+[kostal]
+host = ""                     # local IP/DNS of PLENTICORE; never committed
+port = 1502
+unit = 71                     # verify against this inverter's setup
+
+[protection]
+poll_interval_s = 15
+refresh_interval_s = 30
+min_change_w = 100
+grid_margin_w = 100
+min_charge_power_w = 500
+min_soc_hysteresis_pct = 0.5
+state_coherence_w = 500
+readback_tolerance_w = 50
+max_reasonable_power_w = 30000
+http_timeout_s = 3
+modbus_timeout_s = 3
+
+[intelligent]
+vehicle_name = ""               # required in intelligent mode; from EVCC vehicleName
+loadpoint_id = 1              # beta only supports a single EVCC loadpoint
+fixed_reserve_soc_pct = 20   # explicit TOTAL reserve, not an extra kWh deduction
+
+# Home Assistant is optional in both modes.
+# Physical 1042 minimum comes only from the central KOSTAL reader.
+# A fresh HA slider is required only when reserve_entity is configured.
+[home_assistant]
+api_url = ""                  # e.g. http://127.0.0.1:8123
+token_file = ""               # path to a file containing "Bearer <TOKEN>"
+reserve_entity = ""           # optional HA input_number; overrides fixed reserve

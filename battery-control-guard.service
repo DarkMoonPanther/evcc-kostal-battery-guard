@@ -1,0 +1,37 @@
+[Unit]
+Description=EVCC KOSTAL Battery Control Guard 0.8.0-beta
+Wants=network-online.target evcc.service
+After=network-online.target evcc.service
+# Deliberately does not stop the legacy service. The new service refuses to
+# start until the operator separately stops the old writer and controller.
+
+[Service]
+Type=simple
+User=bcguard
+Group=bcguard
+WorkingDirectory=/opt/battery-control-guard
+ExecStartPre=/usr/bin/python3 -m battery_control_guard.app --config /etc/battery-control-guard/config.toml --check-config
+ExecStart=/usr/bin/python3 -m battery_control_guard.app --config /etc/battery-control-guard/config.toml --run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=25
+StateDirectory=battery-control-guard
+StateDirectoryMode=0700
+RuntimeDirectory=battery-control-guard
+RuntimeDirectoryMode=0755
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

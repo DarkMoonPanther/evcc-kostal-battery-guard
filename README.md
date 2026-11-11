@@ -1,87 +1,87 @@
-# evcc-battery-guard
+# EVCC KOSTAL Battery Control Guard
 
-**Experimental third-party extension for EVCC and KOSTAL PLENTICORE.** Not affiliated with EVCC or KOSTAL.
+**v0.8.0-beta — experimental, third-party community project; not affiliated with EVCC or KOSTAL.**
 
-During EV fast, planned, minimum-SoC recovery, or cost-optimized charging, this tool dynamically limits the home battery's *total maximum discharge power*, aiming to leave battery energy available to ordinary household load. This does **not** physically isolate EV and home circuits.
+One configurable Python application combines dynamic house-battery discharge protection and **optional** forecast-based battery budgeting while EVCC controls an electric vehicle. This package replaces the former v0.4.0 single-file architecture; that version remains accessible through the Git history and v0.4.0 tag.
 
-Based on the locally deployed Mokka Battery Guard **v0.4.0**. Production use on a single installation does not establish general hardware compatibility.
+> **Beta / field evidence (11 November 2026):** The **fast-charge pre-arm hotfix** has now passed a real KOSTAL G3 charge session: register 1040 was capped at 0 W **before** EVCC first reported ~9.8 kW EV power, then dynamically limited during charging; the guard ceased writes at charge end, and later readback rose toward normal values. This is **one-site evidence of classic protection and logged release**, not proof of universal inverter behavior. The optional *intelligent positive EV battery budget* remains unvalidated under real eligible plan charging in the integrated beta. Local tests: **110 discovered, 107 passed, 3 optional historic comparisons skipped**. Live hardware Modbus writes are possible.
 
-## Compatibility
+## Design principles
 
-- EVCC with accessible REST state fields for house, grid, PV, loadpoints and one battery object containing SoC.
-- **KOSTAL PLENTICORE** with the documented Modbus battery-control interface; verified only on one G3 deployment, not across all G3 firmware versions.
-- Linux with systemd, Python 3.10+ (standard library only), and access to inverter Modbus/TCP and EVCC REST.
-- **One writer only** to battery-control registers. EVCC batteryDischargeControl must be false during active guard control. Do not run another battery-write automation concurrently.
+- **EVCC alone decides if/when the EV charges.** Battery Control Guard does not start or stop vehicle charging.
+- **Protection mode:** dynamically caps total KOSTAL battery discharge during supported fast, scheduled, Smart-minimum and preconditioning situations while leaving capacity for ordinary house load.
+- **Fast-charge pre-arm:** EVCC explicit fast mode with an attached vehicle already triggers classic protection before the high-power ramp; an existing cap survives a delayed charging stop even if EVCC changes mode. See [hotfix and field test](docs/FIELD-VALIDATION.md).
+- **Intelligent mode (opt-in):** permits additional, bounded home-battery energy for certain already-active eligible EVCC charges, using PV recovery and consumption forecasts, effective SoC reserve, vehicle/plan identity and a spent-night-budget ledger.
+- The application runs as **one systemd service**, with internal modules and **one Modbus writer** controlling KOSTAL register 1040. It does **not** physically isolate the EV from household wiring.
+- A process lock prevents two instances that use the *same* state directory; it does not exclude unrelated software or another state directory. The operator must ensure sole control of the inverter battery registers.
 
-**Register 1040 is KOSTAL-specific, not a universally portable Modbus address.** See [register documentation](docs/kostal-registers.md).
+## Compared with the evcc Optimizer
 
-## Operating principle
+The **[evcc Optimizer](https://docs.evcc.io/en/features/optimizer/)** plans energy use across PV, home batteries, electricity tariffs and eligible EV charging. Depending on its settings, it can recommend or automatically apply battery and charging decisions.
 
-The guarded target is computed as:
+**Battery Control Guard solves a narrower KOSTAL-specific problem:** during eligible EVCC-controlled charging it sets a **dynamic discharge-power limit in watts** via Modbus register **1040**, so the home battery can still cover household demand instead of being fully blocked. Its optional forecast module grants a limited additional EV energy budget when the predicted reserve allows it. **It never starts/stops EV charging and does not replace tariff-based whole-home optimization.**
 
-```text
-candidate = max(0, homePower - pvPower - gridMargin)
-limit = min(candidate, pre-session register 1040 value, BMS maximum register 1078)
-```
+**Do not operate both as battery controllers:** evcc Optimizer automatic battery modes (`battery`/`full`) can compete for the same KOSTAL control registers. Use evcc automatic Optimizer control `off` with this Guard and ensure no other active battery-control writer. This is a configuration requirement, not an assertion that the Guard already detects every optimizer conflict.
 
-For example, with household load 2000 W, PV 1500 W, grid margin 100 W, the initial candidate is 400 W. The code additionally checks EVCC meter consistency, minimum battery SoC and the active charging mode. It writes only KOSTAL register 1040 (FC16) and verifies readback.
+Reference: [evcc 0.318.2 KOSTAL battery-mode implementation](https://github.com/evcc-io/evcc/blob/0.318.2/templates/definition/meter/kostal-plenticore-gen2.yaml).
 
-The cap applies to **all** battery discharge, not separately to the EV. Measurement delays, configuration mistakes or power transients can affect results.
+## Requirements / verified coverage
 
-## First installation (inert by default)
+| Requirement | Facts |
+| --- | --- |
+| Python | **3.11+** (standard library; tomllib) |
+| OS | Linux with systemd for the packaged service / installer |
+| EVCC | Reachable /api/state with coherent house, grid, PV, EV and one battery; locally tested with **EVCC 0.318.2** |
+| Inverter | KOSTAL PLENTICORE with manufacturer-documented **external battery control over Modbus TCP**, enabled by a qualified installer; beta startup observed on **one G3** |
+| Modbus | Common default TCP 1502, Unit 71 — check your individual inverter |
+| Intelligent mode | One EVCC loadpoint (index 1) and explicitly configured exact vehicleName, usable PV/household history, valid reserve and session identity |
+| Home Assistant | Optional; only needed when using an HA reserve entity or the example HA status exporter |
 
-Read [SAFETY.md](docs/SAFETY.md) before use.
+**Not validated:** the integrated beta on PLENTICORE G2, other G3 firmware combinations, MDC setups, other inverter brands, multiple loadpoints, or Octopus/Zappi external-charge recognition. Older G2 community feedback refers to earlier guard versions.
 
-1. Review the source and run `python3 -m unittest discover -s tests -v`.
-2. Run `sudo python3 install.py`. On first installation, it copies files only. It neither changes EVCC nor enables/starts the service. Existing destination files cause it to refuse installation.
-3. Edit `/etc/evcc-battery-guard.conf`: replace the documentation address `192.0.2.10`, and verify unit ID, port, EVCC URL and metering. **Leave ARMED=false**.
-4. Run `sudo python3 check.py`. This performs a **read-only** state and Modbus check.
-5. Only after a site-specific battery-control and external-timeout verification: set EVCC batteryDischargeControl to false; explicitly set ARMED=true; then manually enable and start `evcc-battery-guard.service` with systemd.
+## Local read-only preview — no inverter writes
 
-**The fifth step enables live inverter control.** Do not treat it as part of an automated installer.
+~~~bash
+python3 --version
+cp config.example.toml config.toml
+# Edit only the copied file. Make application.state_dir a writable absolute path.
+# Keep application.execution="observe" and application.armed=false.
+python3 -m battery_control_guard.app --config config.toml --check-config
+python3 -m battery_control_guard.app --config config.toml --observe
+python3 -m unittest discover -s tests -v
+sh install.sh --dry-run
+~~~
 
-### Disable / rollback
+Observe reads EVCC state and writes only a local status report. It does **not** open a KOSTAL Modbus connection or issue EVCC POST commands. The example config is intentionally **disarmed**.
 
-Return EVCC's battery-control setting to the intended safe configuration and stop the guard. The guard **stops writing 1040 instead of restoring a saved baseline**; the inverter returns to internal operation only after its configured external-control timeout. Observe and verify this behavior on your system. Stopping the process does not instantly restore inverter control.
+For a brand-new installation, read [Installation](docs/INSTALLATION.md). The installer only places disarmed files and a systemd service; it does not start or enable control.
 
-## Safety design (code behavior, not a hardware guarantee)
+For existing v0.4.0 deployments, follow [Migration](docs/MIGRATION.md), not the old installer. For previous private 0.6/0.7 controllers, preserve and migrate spent night budgets. **Never run old and new battery controllers simultaneously.**
 
-- ARMED=false refuses all Modbus writes.
-- Only acts during eligible active charging and with coherent EVCC state.
-- Caps register 1040 based on pre-session maximum and read-only BMS maximum (1078).
-- Reads KOSTAL minimum SoC (1042) and uses hysteresis; never writes 1042.
-- Refuses known conflicting EVCC battery modes.
-- On inconsistent data during an active session, attempts a conservative 0 W limit.
-- If communication is interrupted, this fallback write may be impossible; reliance on inverter external-control timeout remains essential.
+## Safety-critical technical scope
 
-Offline tests do not establish third-party hardware safety. Read [safety limitations](docs/SAFETY.md) and [security policy](SECURITY.md).
+Register **1040** is the KOSTAL-specific maximum discharge power limit (W, Float). The app additionally reads **1042** (minimum SoC), **1078** (BMS max discharge) and **5** (byte order). It does **not** control the G3 1280–1288 battery limitation family. See [Register reference](docs/kostal-registers.md) and [Safety](docs/SAFETY.md).
 
-## Project status
+On release of active protection the guard stops 1040 write commands, relying on the configured KOSTAL external-control timeout to return to normal battery regulation. This must be tested on the specific device; the readable register value and actual control mode are different observations. In an October 2026 manufacturer-support response, KOSTAL stated that even frequent writes to register 1040 do not cause storage wear.
 
-**v0.4.0 source update (23 October 2026).** v0.4.0 is installed on one KOSTAL G3 system; the new retry and logging paths passed 12 local offline regression tests, in addition to the repository's original tests. A repeat of the original anomalous meter/Modbus event has not been observed and validated in production since deployment. No universal manufacturer or firmware support is claimed.
+Forecasts and HA reserve inputs are software policy, not hardware protection guarantees. If forecasts/HA data required by a configured intelligent mode become unusable, the guard must refuse *extra* EV energy permission. Misconfiguration, network loss or failure can still lead to grid energy use or other unintended outcomes; see limitations.
 
-### What's new in v0.4.0
+## Monitoring
 
-- During an **active protected charge**, one inconsistent EVCC state snapshot triggers exactly **one complete re-fetch after 1 second**. The new snapshot replaces the old one; ownership, battery mode and charging eligibility are checked again before a write.
-- If the retry is still inconsistent or fails, the conservative pre-existing fallback remains (attempting a 0 W limit if the guard already owns an active session).
-- FC03 Modbus read errors now include the attempted register address and register count for troubleshooting.
-- The public example polls every 15 seconds and refreshes at 30 seconds (100 W change threshold). These are *example values*, not universal recommendations. The inverter's external timeout and actual behavior must be checked.
+~~~bash
+systemctl status battery-control-guard.service
+sudo journalctl -u battery-control-guard.service -n 80 --no-pager
+sudo cat /var/lib/battery-control-guard/status.json
+~~~
 
-See [CHANGELOG.md](CHANGELOG.md).
+Do not post private EVCC/KOSTAL logs, token files, state/budget ledger or real config to GitHub issues.
 
-## Primary sources
+## Documentation
 
-- [KOSTAL Modbus/SunSpec interface document, revision 2.9, 17 July 2026](https://www.kostal-solar-electric.com/fileadmin/downloadcenter/kse/BA/Protokollbeschreibung/BA_KOSTAL_Interface_MODBUS-TCP_SunSpec_with_Control.pdf)
-- [KOSTAL G3 external battery control and timeout](https://documents.kostal.com/PLENTICORE-G3/BA-DE/de-DE/473255435778655115.html)
-- [EVCC API state](https://docs.evcc.io/de/reference/state/)
-- [EVCC battery discharge API](https://docs.evcc.io/integrations/rest-api/operations/setbatterydischargecontrol/)
+- [Deutsch: Kurzanleitung](docs/KURZANLEITUNG-DE.md) · [Install](docs/INSTALLATION.md) · [Configuration](docs/CONFIGURATION.md) · [Migration](docs/MIGRATION.md) · [Rollback](docs/ROLLBACK.md)
+- [Safety](docs/SAFETY.md) · [Compatibility](docs/COMPATIBILITY.md) · [Architecture](docs/ARCHITECTURE.md)
+- [Optional Home Assistant export](docs/HOME-ASSISTANT.md) · [Beta release notes](docs/RELEASE-NOTES-v0.8.0-beta.md) · [Changelog](CHANGELOG.md)
+- [Anonymized field validation](docs/FIELD-VALIDATION.md) · [Detailed implementation changes](docs/IMPLEMENTATION-CHANGES.md)
+- [Security reporting](SECURITY.md)
 
-## License
-
-MIT — see [LICENSE](LICENSE). No EVCC or KOSTAL software is bundled.
-
-## Development transparency
-
-This project was developed with assistance from OpenAI's ChatGPT. The project maintainer defined the requirements, selected the intended behavior, and guided the configuration and testing on a real installation. AI assistance was used to develop and review the Python implementation, documentation, and offline tests.
-
-The software has been operated on one KOSTAL PLENTICORE G3 installation, and selected code paths have passed automated offline tests. These results do not establish compatibility, safety, or reliability on other systems. The repository maintainer remains responsible for reviewing changes and documenting verified behavior.
+Development included ChatGPT assistance; source and documentation require independent technical review. [MIT License](LICENSE).

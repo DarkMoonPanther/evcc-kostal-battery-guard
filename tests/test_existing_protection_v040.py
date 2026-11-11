@@ -6,11 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SOURCE = Path(__file__).resolve().parents[1] / "evcc-battery-guard.py"
-spec = importlib.util.spec_from_file_location("evcc_battery_guard_v040", SOURCE)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
+from battery_control_guard import protection as mod
 
 def cfg():
     return mod.Config(
@@ -21,7 +17,7 @@ def cfg():
         min_soc_hysteresis_pct=0.5, state_coherence_w=500,
         readback_tolerance_w=50, max_reasonable_power_w=30000,
         http_timeout_s=3, modbus_timeout_s=3,
-        state_dir=Path(tempfile.gettempdir()) / "evcc_guard_v040_offline_tests",
+        state_dir=Path(tempfile.gettempdir()) / "mokka_guard_v040_offline_tests",
     )
 
 def coherent():
@@ -39,7 +35,7 @@ def incoherent():
 
 class CoherenceTests(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(mod.VERSION, "0.4.0")
+        self.assertEqual(mod.VERSION, "0.8.0-beta")
 
     def test_normal_coherent_does_not_refetch_or_wait(self):
         state = coherent()

@@ -6,7 +6,7 @@ Design goals:
 - never fight evcc: requires batteryDischargeControl=false before it will write
 - never relax an existing inverter limit: dynamic target is capped by the baseline 1040
 - fail conservative: incoherent/invalid state while active -> 1040=0 W
-- relinquish 1040 control when guarded charging ends; inverter timeout handles failback
+- restore the pre-session 1040 value when the guarded charging condition ends
 - no third-party Python dependencies
 """
 
@@ -25,10 +25,13 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import threading
 from pathlib import Path
 from typing import Any
+from .predictive_observer import PredictiveObserver
+from . import decision
 
-VERSION = "0.4.0"
+VERSION = "0.8.0-beta"
 REG_BYTE_ORDER = 5
 REG_MAX_DISCHARGE = 1040
 REG_MIN_SOC = 1042
@@ -99,7 +102,7 @@ class Config:
             max_reasonable_power_w=env_float("MAX_REASONABLE_POWER_W", 30000.0),
             http_timeout_s=env_float("HTTP_TIMEOUT_S", 3.0),
             modbus_timeout_s=env_float("MODBUS_TIMEOUT_S", 3.0),
-            state_dir=Path(os.getenv("STATE_DIR", "/var/lib/evcc-battery-guard")),
+            state_dir=Path(os.getenv("STATE_DIR", "/var/lib/battery-control-guard")),
         )
 
 
@@ -299,7 +302,44 @@ def loadpoints(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def smart_minimum_charge_active(lp: dict[str, Any]) -> bool:
+    """EVCC Smart minimum charging is set per vehicle, not per charge mode.
+
+    Use effectiveMinSoc and vehicleSoc as an independent check of whether
+    the configured minimum target is actually unmet, even if the boolean
+    flag is false. Missing vehicleSoc with an
+    active minimum target must fail to GRID-for-EV rather than draining storage.
+    """
+    if lp.get("mode") != "smart":
+        return False
+    try:
+        minimum = number(lp.get("effectiveMinSoc"), "loadpoint.effectiveMinSoc")
+    except RuntimeError:
+        return False
+    if minimum <= 0 or minimum > 100:
+        return False
+    try:
+        vehicle = number(lp.get("vehicleSoc"), "loadpoint.vehicleSoc")
+    except RuntimeError:
+        return True
+    if vehicle < 0 or vehicle > 100:
+        return True
+    return vehicle < minimum
+
+
+def smart_continuous_charge_active(lp: dict[str, Any]) -> bool:
+    """EVCC 2026 Smart + Dauerhaft laden (not the intelligent 'once' case)."""
+    return lp.get("mode") == "smart" and lp.get("alwaysCharge") == "on"
+
+
 def protected_fast_charge(lp: dict[str, Any], cfg: Config) -> bool:
+    # EVCC's intentional NOW command enables the charger before EVCC starts
+    # reporting nonzero power. Pre-arm the KOSTAL home-only cap *before* the
+    # car ramps to 9-10 kW; a 500W-only gate can miss the ramp between polls.
+    # This affects only classic protection, NOT intelligent budget permission
+    # and never sends a command to EVCC.
+    if lp.get("mode") == "now" and lp.get("connected") is True:
+        return True
     if lp.get("charging") is not True:
         return False
     try:
@@ -312,9 +352,66 @@ def protected_fast_charge(lp: dict[str, Any], cfg: Config) -> bool:
         lp.get("mode") == "now"
         or lp.get("planActive") is True
         or lp.get("minSocNotReached") is True
+        or smart_minimum_charge_active(lp)
+        or smart_continuous_charge_active(lp)
         or lp.get("smartCostActive") is True
+        # EVCC can enable one-phase charging specifically for preconditioning
+        # in Smart mode without PV. Protect household battery in this case.
+        # Reuse the established 1040 limit: the home may still draw from the
+        # battery, but EV charging should be supplied by PV/grid.
+        or (lp.get("mode") == "smart" and lp.get("vehicleClimaterActive") is True)
     )
 
+
+# Smart + "alwayscharge:once" is a dedicated opt-in from our intelligent scheduler.
+# NEVER infer battery-discharge permission merely from the EVCC mode.
+# Loss or expiry of the localhost scheduler means GRID-FOR-EV, not full discharge.
+def intelligent_once(lp: dict[str, Any], cfg: Config) -> bool:
+    if lp.get("mode") != "smart" or lp.get("alwaysCharge") != "once":
+        return False
+    if lp.get("charging") is not True:
+        return False
+    try:
+        return number(lp.get("chargePower", 0), "loadpoint.chargePower") >= cfg.min_charge_power_w
+    except RuntimeError:
+        return False
+
+def intelligent_plan(lp: dict[str,Any],cfg:Config) -> bool:
+    # Actual EVCC planned charging slot, not merely a stored plan for tomorrow.
+    if not (lp.get("charging") is True and lp.get("planActive") is True
+            and lp.get("mode")=="smart" and lp.get("alwaysCharge")=="off"
+            and lp.get("vehicleName")==os.environ.get("BCG_VEHICLE_NAME")
+            and type(lp.get("effectivePlanId")) is int
+            and lp["effectivePlanId"]>0
+            and isinstance(lp.get("effectivePlanTime"),str)
+            and lp.get("effectivePlanTime")
+            and not lp.get("vehicleClimaterActive")
+            and not lp.get("minSocNotReached")
+            and not lp.get("smartCostActive")
+            and not lp.get("batteryBoost")):
+        return False
+    try:
+        return number(lp.get("chargePower",0),"loadpoint.chargePower")>=cfg.min_charge_power_w
+    except RuntimeError:
+        return False
+
+def intelligent_permission() -> dict[str, Any] | None:
+    """Short lived authorization via the single-process decision bus.
+
+    The original 5099 API did exactly this validation. No HTTP listener exists.
+    """
+    return decision.snapshot()
+
+
+def intelligent_floor(kostal_min_soc:float, state:dict[str,Any], slider_floor:float) -> float:
+    # The HA slider expresses TOTAL RESERVE in percent (e.g. 15%).
+    # Never go below the KOSTAL or EVCC battery minimum.
+    devices=(state.get("battery") or {}).get("devices") or []
+    if len(devices)!=1:raise RuntimeError("ambiguous battery: refuse intelligent permission")
+    evcc_min=number(devices[0].get("minSoc"),"battery.devices.minSoc")
+    if not 0<=evcc_min<=100:raise RuntimeError("invalid EVCC battery minimum SoC")
+    if not 8<=slider_floor<=30:raise RuntimeError("invalid HA reserve helper")
+    return max(kostal_min_soc,evcc_min,slider_floor)
 
 def metrics(state: dict[str, Any], cfg: Config) -> dict[str, Any]:
     lps = loadpoints(state)
@@ -341,6 +438,18 @@ def metrics(state: dict[str, Any], cfg: Config) -> dict[str, Any]:
         "coherence_error": coherence_error,
         "coherent": coherence_error <= cfg.state_coherence_w,
         "guard_requested": any(protected_fast_charge(lp, cfg) for lp in lps),
+        "smart_minimum_charge": any(
+            lp.get("charging") is True
+            and smart_minimum_charge_active(lp)
+            for lp in lps
+        ),
+        "smart_continuous_charge": any(
+            lp.get("charging") is True
+            and smart_continuous_charge_active(lp)
+            for lp in lps
+        ),
+        "intelligent_once": any(intelligent_once(lp, cfg) for lp in lps),
+        "intelligent_plan": any(intelligent_plan(lp, cfg) for lp in lps),
         "battery_boost": any(lp.get("batteryBoost") is True for lp in lps),
     }
 
@@ -370,12 +479,17 @@ class Guard:
         self.cfg = cfg
         self.kostal = Kostal(cfg)
         self.stop_requested = False
+        # Latch becomes ready only after EVCC and KOSTAL 1042 pass preflight.
+        self.ready_event = threading.Event()
         self.baseline: float | None = None
         self.last_target: float | None = None
+        self.last_reason: str | None = None
         self.last_write_monotonic = 0.0
         self.min_soc_blocked = False
         self.last_min_soc_message: str | None = None
         self.session_file = cfg.state_dir / "session.json"
+        # Read-only observer. Never feeds values into write_limit or 1040.
+        self.predictive = None
 
     def _save_session(self) -> None:
         self.cfg.state_dir.mkdir(parents=True, exist_ok=True)
@@ -419,6 +533,7 @@ class Guard:
         target = math.floor(target / 10.0) * 10.0
         readback = self.kostal.write_float(REG_MAX_DISCHARGE, target)
         self.last_target = target
+        self.last_reason = reason
         self.last_write_monotonic = time.monotonic()
         log(f"1040={readback:.1f}W reason={reason} bmsMax={bms_max:.1f}W")
 
@@ -495,6 +610,22 @@ class Guard:
         while not self.stop_requested:
             try:
                 state = fetch_evcc_state(self.cfg)
+                # One central Modbus reader/writer. The intelligent worker never
+                # accesses the inverter. 1042 is explicitly observed during idle,
+                # because a future once-session may need a live physical floor.
+                try:
+                    floor1042 = self.kostal.read_float(REG_MIN_SOC)
+                    decision.publish_kostal_min_soc(floor1042)
+                except Exception as floor_error:
+                    # Missing idle telemetry blocks intelligence, but must not
+                    # prevent the original EVCC protection checks from running.
+                    decision.invalidate_kostal_min_soc()
+                    log(f"KOSTAL 1042 observation unavailable: {floor_error}", "WARN")
+                # Isolated observer; failure must never change the existing controller.
+                try:
+                    self.predictive.tick(state) if self.predictive is not None else None
+                except Exception as obs_exc:
+                    log(f"predictive observer warning: {obs_exc}", "WARN")
 
                 if state.get("batteryDischargeControl") is not False:
                     self.relinquish("evcc batteryDischargeControl is not false")
@@ -524,8 +655,34 @@ class Guard:
                     time.sleep(self.cfg.poll_interval_s)
                     continue
 
-                if not m["guard_requested"]:
-                    self.relinquish("no protected fast/planned charging")
+                # The intelligent worker cannot start until the sole KOSTAL
+                # reader has verified a live 1042, coherent EVCC and ownership.
+                if m["coherent"]:
+                    try:
+                        decision.get_kostal_min_soc()
+                    except RuntimeError:
+                        pass
+                    else:
+                        self.ready_event.set()
+
+                # A mode change is not a physical charge stop. EVCC can still
+                # deliver several kW for tens of seconds after now -> smart/off.
+                # Retain an ALREADY-ARMED protective cap until the charger
+                # actually reports charging stopped. Do not start a fresh
+                # session for ordinary Smart PV charging.
+                if self.baseline is not None and not m["guard_requested"]:
+                    still_charging = any(
+                        lp.get("connected") is True
+                        and lp.get("charging") is True
+                        and number(lp.get("chargePower", 0), "loadpoint.chargePower")
+                            >= self.cfg.min_charge_power_w
+                        for lp in loadpoints(state)
+                    )
+                    if still_charging:
+                        m = dict(m, guard_requested=True)
+
+                if not (m["guard_requested"] or m["intelligent_once"]):
+                    self.relinquish("no protected fast/planned/intelligent charging")
                     time.sleep(self.cfg.poll_interval_s)
                     continue
 
@@ -541,6 +698,7 @@ class Guard:
                     continue
 
                 min_soc = self.kostal.read_float(REG_MIN_SOC)
+                decision.publish_kostal_min_soc(min_soc)
                 if not self.min_soc_allows_discharge(m["battery_soc"], min_soc):
                     self.relinquish(
                         f"battery at minimum SoC ({m['battery_soc']:.1f}% <= {min_soc:.1f}%)"
@@ -554,15 +712,21 @@ class Guard:
                     time.sleep(self.cfg.poll_interval_s)
                     continue
 
-                desired = max(0.0, m["home"] - m["pv"] - self.cfg.grid_margin_w)
-                desired = min(desired, self.baseline if self.baseline is not None else desired)
+                try:
+                    desired, origin = decision.compute_target(
+                        m, state, self.cfg, min_soc, self.baseline,
+                        permission=intelligent_permission())
+                except Exception as e:
+                    desired=max(0.0,m["home"]-m["pv"]-self.cfg.grid_margin_w)
+                    desired=min(desired,self.baseline if self.baseline is not None else desired)
+                    origin=f"fail closed intelligent: {e}"
                 if self.should_refresh(desired):
                     self.write_limit(
                         desired,
                         (
                             f"home={m['home']:.0f}W pv={m['pv']:.0f}W "
                             f"gridMargin={self.cfg.grid_margin_w:.0f}W "
-                            f"car={m['charge']:.0f}W"
+                            f"car={m['charge']:.0f}W phase={origin}"
                         ),
                     )
 
@@ -577,6 +741,7 @@ class Guard:
 
             time.sleep(self.cfg.poll_interval_s)
 
+        decision.invalidate_kostal_min_soc()
         self.relinquish("service stop")
         return 0
 
@@ -596,6 +761,8 @@ def check(cfg: Config) -> int:
         "evccBatteryDischargeControl": state.get("batteryDischargeControl"),
         "evccBatteryMode": state.get("batteryMode"),
         "guardRequested": m["guard_requested"],
+        "smartMinimumCharge": m["smart_minimum_charge"],
+        "smartContinuousCharge": m["smart_continuous_charge"],
         "stateCoherent": m["coherent"],
         "coherenceErrorW": round(m["coherence_error"], 1),
         "homePowerW": round(m["home"], 1),
