@@ -1,6 +1,6 @@
 # v0.8.0-beta — proposed GitHub pre-release notes
 
-**Status: ready for maintainer review. No public push/tag or GitHub Release has been made.**
+**Experimental GitHub pre-release.** Classic fast-charge protection was field-tested on one G3 with the pre-arm hotfix; positive intelligent plan-based extra battery allocation remains unvalidated under live charging in this combined beta.
 
 ## Highlights
 
@@ -35,7 +35,7 @@ A later live retest with the corrected code observed:
 
 Python 3.11+ and TOML; new service battery-control-guard.service, package battery_control_guard, separate private state directory and mandatory safe migration marker in intelligent mode. Do **not** keep the old evcc-battery-guard.service running. Do not use the private site-specific deployment scripts as a universal installer.
 
-Read [Migration](MIGRATION.md), [Installation](INSTALLATION.md), [Safety](SAFETY.md), [Change detail](IMPLEMENTATION-CHANGES.md) and [Field validation](FIELD-VALIDATION.md) before activation.
+Read [Migration](https://github.com/DarkMoonPanther/evcc-kostal-battery-guard/blob/v0.8.0-beta/docs/MIGRATION.md), [Installation](https://github.com/DarkMoonPanther/evcc-kostal-battery-guard/blob/v0.8.0-beta/docs/INSTALLATION.md), [Safety](https://github.com/DarkMoonPanther/evcc-kostal-battery-guard/blob/v0.8.0-beta/docs/SAFETY.md), [Change detail](https://github.com/DarkMoonPanther/evcc-kostal-battery-guard/blob/v0.8.0-beta/docs/IMPLEMENTATION-CHANGES.md) and [Field validation](https://github.com/DarkMoonPanther/evcc-kostal-battery-guard/blob/v0.8.0-beta/docs/FIELD-VALIDATION.md) before activation.
 
 **Conflict warning:** Do not simultaneously enable evcc automatic Optimizer battery control (battery/full) or another Modbus writer to the KOSTAL battery registers. This is a required operator setting, not proof that the current guard can detect every competing controller.
 

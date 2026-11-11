@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0-beta — release candidate updated 11 November 2026 (NOT PUBLISHED)
+## 0.8.0-beta — beta publication, 11 November 2026
 
 **Breaking architecture change from public 0.4.0:** One modular Python application and systemd service replace the separate historical classic protection and intelligent forecast controller.
 

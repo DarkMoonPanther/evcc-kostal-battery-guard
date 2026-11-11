@@ -1,0 +1,53 @@
+name: Publish v0.8.0-beta prerelease
+
+on:
+  push:
+    tags:
+      - "v0.8.0-beta"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Verify and publish beta
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Python code
+        run: python -m compileall -q battery_control_guard scripts tests
+
+      - name: Run offline regression tests
+        run: python -m unittest discover -s tests -q
+
+      - name: Check disarmed sample and installer
+        run: |
+          python -m battery_control_guard.app --config config.example.toml --check-config
+          sh install.sh --dry-run
+
+      - name: Audit public files for sensitive patterns
+        run: python scripts/release_audit.py
+
+      - name: Create source archive and checksum
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix=EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta/ HEAD > dist/EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta.tar.gz
+          cd dist
+          sha256sum EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta.tar.gz > EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta.tar.gz.sha256
+
+      - name: Publish prerelease only after successful tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta.tar.gz dist/EVCC-KOSTAL-Battery-Control-Guard-v0.8.0-beta.tar.gz.sha256 \
+            --verify-tag \
+            --prerelease \
+            --title "EVCC KOSTAL Battery Control Guard v0.8.0-beta" \
+            --notes-file docs/RELEASE-NOTES-v0.8.0-beta.md
