@@ -22,5 +22,9 @@ jobs:
         run: python -m battery_control_guard.app --config config.example.toml --check-config
       - name: Check inert installer
         run: sh install.sh --dry-run
+      - name: Validate optional Home Assistant UI syntax
+        run: node --check frontend/battery-control-guard-card.js
+      - name: Validate optional Home Assistant installer
+        run: sh -n scripts/install_ha_ui.sh
       - name: Public privacy audit
         run: python scripts/release_audit.py
