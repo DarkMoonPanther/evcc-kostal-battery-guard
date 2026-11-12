@@ -50,3 +50,9 @@ The following were applied only to the **separate publication candidate**, not s
 The publication candidate excludes private EVCC/KOSTAL/HA logs, exact usage history, site-specific network IPs, authentication headers and token files, night budget/session state, device-specific identity values, local paths, backups and original evidence reports.
 
 The test-supported fast-charge logic was taken from the verified production hotfix, with its private fallback state-directory value normalized for the public distribution. Other publication-only adjustments have offline test coverage but are not asserted to have been physically field-tested as a standalone published build.
+
+## E. Home Assistant UI integration — post-tag, 12 November 2026
+
+An optional, anonymized Lovelace UI derived from the existing local Guard dashboard has been integrated into the **same** repository. This extraction excludes local vehicle panels, private entity IDs, personal history reports and embedded photos. Its data comes from the existing schema-checked read-only bridge. HA entity IDs are set per installation. The Classic / Intelligent selection changes display only; the optional reserve slider calls HA `input_number.set_value` and cannot force backend mode or issue Modbus commands.
+
+An opt-in HA UI installer copies the card and exporter and stages a disabled user timer. This has offline/browser test coverage, not independent on-site third-party validation. The original 11 November v0.8.0-beta release is unchanged.
