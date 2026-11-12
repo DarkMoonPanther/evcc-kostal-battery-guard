@@ -1,5 +1,8 @@
 # Optional Home Assistant status export
 
+The optional standalone Lovelace card is in this same repository (post-tag). See [UI installation](UI-INSTALLATION.md). The original v0.8.0-beta release archive predates this addition.
+
+
 Home Assistant is **not required** for the ordinary protection mode. Intelligent mode can use the fixed SoC reserve without Home Assistant, or can use a deliberately configured HA reserve entity and a private token file.
 
 ## Optional reserve read
