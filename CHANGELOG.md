@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — integrated optional Home Assistant UI (12 November 2026)
+
+- Extract the existing Battery Guard visual sheet from the private EV-charging dashboard into a configurable `custom:battery-control-guard-card`.
+- Include real vs preview permission, forecast recovery, battery history, operating status and reason codes.
+- Add optional mapping for a Home Assistant safety-reserve helper; backend mode selector remains display-only.
+- Add an opt-in, disabled-by-default HA status export timer and UI installer; no additional Modbus writer.
+- Test frontend interaction in an isolated browser, and test the installer in a disposable HA directory; no changes to local production.
+- Keep the original published `v0.8.0-beta` tag and archived release immutable.
+
+
 ## 0.8.0-beta — beta publication, 11 November 2026
 
 **Breaking architecture change from public 0.4.0:** One modular Python application and systemd service replace the separate historical classic protection and intelligent forecast controller.
