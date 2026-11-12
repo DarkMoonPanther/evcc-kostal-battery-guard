@@ -66,6 +66,14 @@ On release of active protection the guard stops 1040 write commands, relying on 
 
 Forecasts and HA reserve inputs are software policy, not hardware protection guarantees. If forecasts/HA data required by a configured intelligent mode become unusable, the guard must refuse *extra* EV energy permission. Misconfiguration, network loss or failure can still lead to grid energy use or other unintended outcomes; see limitations.
 
+## Optional integrated Home Assistant dashboard (added 12 November 2026)
+
+The existing project now contains an optional, standalone Lovelace card based on the original local Battery Guard view. It displays classic protection, intelligent permission and forecast budget, recovery, HA history and diagnostic reasons. A configured Home Assistant input_number helper can change the intelligent SoC reserve. **Classic / Intelligent is only a view selector; it does not change the running Guard mode.**
+
+Read [UI installation](docs/UI-INSTALLATION.md). The optional installer stages a disabled HA export timer, and the frontend never makes KOSTAL Modbus or EVCC charge-control requests.
+
+The immutable original `v0.8.0-beta` tag from 11 November does **not** include this newer frontend. It is integrated into current source, not a separate repository or a replacement for the original release archive.
+
 ## Monitoring
 
 ~~~bash
