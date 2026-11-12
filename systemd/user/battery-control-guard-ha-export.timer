@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically export read-only Battery Control Guard UI status
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=15sec
+AccuracySec=1sec
+Unit=battery-control-guard-ha-export.service
+
+[Install]
+WantedBy=timers.target
