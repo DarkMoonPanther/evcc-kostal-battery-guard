@@ -1,0 +1,10 @@
+[Unit]
+Description=Battery Control Guard optional Home Assistant status exporter
+Documentation=https://github.com/DarkMoonPanther/evcc-kostal-battery-guard
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/battery-control-guard/ha-ui.env
+ExecStart=/usr/bin/python3 %h/.local/share/battery-control-guard/ha_status_export.py
+NoNewPrivileges=true
+PrivateTmp=true
